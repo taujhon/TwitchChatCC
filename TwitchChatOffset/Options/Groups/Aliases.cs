@@ -11,6 +11,7 @@ public static class Aliases
     public static AliasesContainer SubMaxCharsPerLine { get; } = new(["--sub-max-chars-per-line", "--sub-max-chars"]);
     public static AliasesContainer SubScale { get; } = new(["--sub-scale"]);
     public static AliasesContainer SubFontSize { get; } = new(["--sub-font-size"]);
+    public static AliasesContainer SubFont { get; } = new(["--sub-font"]);
     public static AliasesContainer SubShadow { get; } = new(["--sub-shadow"]);
     public static AliasesContainer SubOutlineDisable { get; } = new(["--sub-outline-disable"]);
     public static AliasesContainer SubWindowOpacity { get; } = new(["--sub-window-opacity"]);

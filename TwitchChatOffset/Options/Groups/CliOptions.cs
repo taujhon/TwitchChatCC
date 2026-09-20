@@ -42,6 +42,10 @@ public static class CliOptions
         "[ASS] ASS subtitle font size (e.g. 18, 15, 25, etc.) (must be a positive integer) (ASS only) (optional)",
         _ => 18);
 
+    public static CliOptionContainer<string> SubFont { get; } = new("--sub-font", Aliases.SubFont,
+        "[YTT|ASS] Font family for subtitles, one of the fonts supported by YouTube: Roboto, Courier New, Times New Roman, Lucida Console, Comic Sans Ms, Monotype Corsiva, Carrois Gothic Sc (or a common alias, e.g. Consolas, Impact) (optional)",
+        _ => "Roboto");
+
     public static CliOptionContainer<Shadow> SubShadow { get; } = new("--sub-shadow", Aliases.SubShadow,
         "[YTT] YTT Shadow type (or none) for subtitles (YTT only) (optional)",
         _ => Shadow.Glow);

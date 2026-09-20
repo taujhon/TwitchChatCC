@@ -19,6 +19,10 @@ public class TransformTests
         Position = new(AnchorPoint.TopLeft, true),
         MaxMessages = new(4, true),
         MaxCharsPerLine = new(40, true),
+        SubFontSize = new(18, true),
+        SubBackgroundEnable = new(false, true),
+        SubOutlineDisable = new(false, true),
+        SubColorSeed = new(0, true),
         WindowOpacity = new(0, true),
         TextColor = new("white", true),
         SectionOptions = new()
@@ -27,7 +31,8 @@ public class TransformTests
             Shadow = new(Shadow.Glow, true),
             SubBackgroundOpacity = new(0, true),
             ShadowColor = new("black", true),
-            SubBackgroundColor = new("black", true)
+            SubBackgroundColor = new("black", true),
+            SubFont = new("Roboto", true)
         }
     };
 
@@ -690,5 +695,81 @@ public class TransformTests
         {
             File.Delete(configPath);
         }
+    }
+
+    [Theory]
+    [InlineData(null, "Roboto")]
+    [InlineData("roboto", "Roboto")]
+    [InlineData("Courier New", "Courier New")]
+    [InlineData("courier", "Courier New")]
+    [InlineData("Times New Roman", "Times New Roman")]
+    [InlineData("georgia", "Times New Roman")]
+    [InlineData("lucida console", "Lucida Console")]
+    [InlineData("consolas", "Lucida Console")]
+    [InlineData("comic sans ms", "Comic Sans Ms")]
+    [InlineData("impact", "Comic Sans Ms")]
+    [InlineData("monotype corsiva", "Monotype Corsiva")]
+    [InlineData("dancing script", "Monotype Corsiva")]
+    [InlineData("carrois gothic sc", "Carrois Gothic Sc")]
+    public void YoutubeFont_Resolve_KnownFont_ReturnsCanonicalName(string? font, string expected)
+    {
+        string result = YoutubeFont.Resolve(font, out bool recognized);
+
+        Assert.Equal(expected, result);
+        Assert.True(recognized);
+    }
+
+    [Fact]
+    public void YoutubeFont_Resolve_UnknownFont_ReturnsRobotoUnrecognized()
+    {
+        string result = YoutubeFont.Resolve("Papyrus", out bool recognized);
+
+        Assert.Equal("Roboto", result);
+        Assert.False(recognized);
+    }
+
+    private const string SingleCommentJson = $"{{\"comments\":[{{{ContentOffsetSecondsTemplate},{CommenterTemplate},\"message\":{{\"body\":\"Hello, World!\",\"user_color\":\"#FF0000\"}}}}]}}";
+
+    [Theory]
+    [InlineData("comic sans ms", "5")]
+    [InlineData("consolas", "3")]
+    [InlineData("impact", "5")]
+    public void Serialize_FormatYtt_SubFont_EmitsFontStyleAttribute(string font, string expectedStyleId)
+    {
+        TransformCommonOptions options = GetOptions(Format.Ytt);
+        options.SubtitleOptions.SectionOptions.SubFont = new(font, true);
+
+        string output = Transform.DoTransform(SingleCommentJson, options);
+
+        Assert.Contains($"fs=\"{expectedStyleId}\"", output);
+    }
+
+    [Fact]
+    public void Serialize_FormatYtt_DefaultSubFont_RendersRobotoWithoutFontStyleAttribute()
+    {
+        string output = Transform.DoTransform(SingleCommentJson, GetOptions(Format.Ytt));
+
+        Assert.DoesNotContain("fs=\"0\"", output);
+    }
+
+    [Theory]
+    [InlineData("courier new", "Courier New")]
+    [InlineData("monotype corsiva", "Monotype Corsiva")]
+    public void Serialize_FormatAss_SubFont_EmitsFontNameOverride(string font, string expectedName)
+    {
+        TransformCommonOptions options = GetOptions(Format.Ass);
+        options.SubtitleOptions.SectionOptions.SubFont = new(font, true);
+
+        string output = Transform.DoTransform(SingleCommentJson, options);
+
+        Assert.Contains($"\\fn{expectedName}", output);
+    }
+
+    [Fact]
+    public void Serialize_FormatAss_DefaultSubScale_DoesNotEmitZeroFontSizeTag()
+    {
+        string output = Transform.DoTransform(SingleCommentJson, GetOptions(Format.Ass));
+
+        Assert.DoesNotContain("\\fs0", output);
     }
 }

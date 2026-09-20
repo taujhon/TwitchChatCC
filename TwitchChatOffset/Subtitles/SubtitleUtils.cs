@@ -10,14 +10,21 @@ namespace TwitchChatOffset.Subtitles;
 
 public static class SubtitleUtils
 {
-    public static void ApplyOptions(this Section section, SubtitleSectionOptions options)
+    public static void ApplyOptions(this Section section, SubtitleSectionOptions options, Format format)
     {
-        var (scale, shadow, backgroundOpacity, shadowColor, backgroundColor) = options;
-        section.Scale = scale;
+        var (scale, shadow, backgroundOpacity, shadowColor, backgroundColor, font) = options;
+        section.Font = font;
+        if (format == Format.Ytt)
+            section.Scale = scale;
         section.Offset = OffsetType.Superscript;
         section.BackColor = Color.FromArgb(backgroundOpacity, backgroundColor);
         if (shadow != null)
             section.ShadowColors[(ShadowType)shadow] = shadowColor;
+    }
+
+    public static void ResolveFont(this SubtitleSectionOptions options)
+    {
+        options.SubFont.Value = YoutubeFont.Resolve(options.SubFont, out _);
     }
 
     public static ShadowType? Convert(this Shadow shadow)

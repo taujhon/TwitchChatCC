@@ -25,6 +25,7 @@ public static class SubtitleSerialization
         }
         SubtitleUtils.NormaliseByte(ref options.WindowOpacity);
         SubtitleUtils.NormaliseByte(ref options.SectionOptions.SubBackgroundOpacity);
+        options.SectionOptions.ResolveFont();
         if (format == Format.Ytt && options.WindowOpacity == 255)
         {
             PrintWarning("Warning: sub-window-opacity is 255 which for some reason may get overridden in the YouTube player, treating it as 254 instead");
@@ -85,8 +86,8 @@ public static class SubtitleSerialization
 
         Section displayNameSection = format.NewSection(wrappedDisplayName, userColor);
         Section messageSection = format.NewSection(wrappedMessage, FromHtml(options.TextColor));
-        displayNameSection.ApplyOptions(options.SectionOptions);
-        messageSection.ApplyOptions(options.SectionOptions);
+        displayNameSection.ApplyOptions(options.SectionOptions, format);
+        messageSection.ApplyOptions(options.SectionOptions, format);
 
         return new(displayNameSection, messageSection, timeSpan);
     }
@@ -164,7 +165,7 @@ public static class SubtitleSerialization
             sections.Add(chatMessage.Name);
             sections.Add(chatMessage.Message);
             Section newlineSection = format.NewSection("\n"); // for YTT, \n and \r\n work, but for ASS, only \r\n works
-            newlineSection.ApplyOptions(options.SectionOptions);
+            newlineSection.ApplyOptions(options.SectionOptions, format);
             sections.Add(newlineSection);
             lastChatMessage = chatMessage;
         }

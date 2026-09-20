@@ -11,6 +11,9 @@ public record SubtitleSectionOptions : OptionGroup<SubtitleSectionOptions>
     [CliOption(nameof(CliOptions.SubScale))]
     public Plicit<double> SubScale;
 
+    [CliOption(nameof(CliOptions.SubFont))]
+    public Plicit<string> SubFont;
+
     [CliOption(nameof(SubShadow))]
     public Plicit<Shadow> Shadow;
 
@@ -23,12 +26,13 @@ public record SubtitleSectionOptions : OptionGroup<SubtitleSectionOptions>
     [CliOption(nameof(CliOptions.SubBackgroundColor))]
     public Plicit<string> SubBackgroundColor;
 
-    public void Deconstruct(out float scale, out ShadowType? shadow, out byte backgroundOpacity, out Color shadowColor, out Color backgroundColor)
+    public void Deconstruct(out float scale, out ShadowType? shadow, out byte backgroundOpacity, out Color shadowColor, out Color backgroundColor, out string font)
     {
         scale = (float)SubScale;
         shadow = Shadow.Value.Convert();
         backgroundOpacity = (byte)SubBackgroundOpacity;
         shadowColor = FromHtml(ShadowColor);
         backgroundColor = FromHtml(SubBackgroundColor);
+        font = SubFont;
     }
 }
