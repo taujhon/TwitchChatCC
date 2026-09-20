@@ -1,9 +1,11 @@
-﻿using TwitchChatOffset.Options.Groups;
+﻿using TwitchChatOffset.Badges;
+using TwitchChatOffset.Options.Groups;
 using TwitchChatOffset.Json;
 using TwitchChatOffset.Subtitles;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using YTSubConverter.Shared;
+using System.IO;
 
 namespace TwitchChatOffset.UnitTests;
 
@@ -32,6 +34,25 @@ public class TransformTests
     private const string ContentOffsetSecondsTemplate = "\"content_offset_seconds\":0";
     private const string CommenterTemplate = "\"commenter\":{\"display_name\":\"JohnSmith\"}";
     private const string MessageTemplate = "\"message\":{\"body\":\"Hello, World!\"}";
+
+    private static TransformCommonOptions GetOptions(Format format, bool badges = false, string badgeConfig = "")
+        => new()
+        {
+            Start = new(0, true),
+            End = new(-1, true),
+            Delay = new(0, true),
+            Format = new(format, true),
+            Badges = new(badges, true),
+            BadgeConfig = new(badgeConfig, true),
+            SubtitleOptions = DefaultSubtitleOptions
+        };
+
+    private static string WriteBadgeConfig(string json)
+    {
+        string path = Path.GetTempFileName();
+        File.WriteAllText(path, json);
+        return path;
+    }
 
     [Theory]
     [InlineData("")]
@@ -444,5 +465,230 @@ public class TransformTests
         string output = Transform.SerializeToPlaintext(json);
 
         Assert.Equal(expectedOutput, output);
+    }
+
+    [Theory]
+    [InlineData(
+        "{\"comments\":[{\"content_offset_seconds\":0,\"commenter\":{\"display_name\":\"JohnSmith\"},\"message\":{\"body\":\"Hello, World!\",\"user_badges\":[]}}]}",
+        "00:00:00 JohnSmith: Hello, World!\n")]
+    [InlineData(
+        "{\"comments\":[{\"content_offset_seconds\":0,\"commenter\":{\"display_name\":\"JohnSmith\"},\"message\":{\"body\":\"Hello, World!\",\"user_badges\":[{\"_id\":\"moderator\",\"version\":\"0\"}]}}]}",
+        "00:00:00 🛡️ JohnSmith: Hello, World!\n")]
+    [InlineData(
+        "{\"comments\":[{\"content_offset_seconds\":0,\"commenter\":{\"display_name\":\"JohnSmith\"},\"message\":{\"body\":\"Hello, World!\",\"user_badges\":[{\"_id\":\"moderator\",\"version\":\"0\"},{\"_id\":\"subscriber\",\"version\":\"2\"}]}}]}",
+        "00:00:00 🛡️⭐ JohnSmith: Hello, World!\n")]
+    [InlineData(
+        "{\"comments\":[{\"content_offset_seconds\":0,\"commenter\":{\"display_name\":\"JohnSmith\"},\"message\":{\"body\":\"Hello, World!\",\"user_badges\":[{\"_id\":\"totallyunknownbadge\",\"version\":\"1\"}]}}]}",
+        "00:00:00 JohnSmith: Hello, World!\n")]
+    public void SerializeToPlaintext_BadgesEnabled_NoConfig_DefaultMapIsUsed(string inputString, string expectedOutput)
+    {
+        JToken json = JsonUtils.Deserialize(inputString);
+
+        string output = Transform.SerializeToPlaintext(json, BadgeMap.Default);
+
+        Assert.Equal(expectedOutput, output);
+    }
+
+    [Theory]
+    [InlineData("{\"moderator\":\"M\",\"vip\":\"V\"}",
+        "{\"comments\":[{\"content_offset_seconds\":0,\"commenter\":{\"display_name\":\"JohnSmith\"},\"message\":{\"body\":\"Hello, World!\",\"user_badges\":[{\"_id\":\"moderator\",\"version\":\"0\"},{\"_id\":\"vip\",\"version\":\"1\"}]}}]}",
+        "00:00:00 MV JohnSmith: Hello, World!\n")]
+    [InlineData("{\"custombadge\":\"🎉\"}",
+        "{\"comments\":[{\"content_offset_seconds\":0,\"commenter\":{\"display_name\":\"JohnSmith\"},\"message\":{\"body\":\"Hello, World!\",\"user_badges\":[{\"_id\":\"custombadge\",\"version\":\"1\"}]}}]}",
+        "00:00:00 🎉 JohnSmith: Hello, World!\n")]
+    [InlineData("{\"moderator\":\"\"}",
+        "{\"comments\":[{\"content_offset_seconds\":0,\"commenter\":{\"display_name\":\"JohnSmith\"},\"message\":{\"body\":\"Hello, World!\",\"user_badges\":[{\"_id\":\"moderator\",\"version\":\"0\"}]}}]}",
+        "00:00:00 JohnSmith: Hello, World!\n")]
+    public void SerializeToPlaintext_BadgesEnabled_ConfigMergesOverDefault(string configJson, string inputString, string expectedOutput)
+    {
+        string configPath = WriteBadgeConfig(configJson);
+        JToken json = JsonUtils.Deserialize(inputString);
+        try
+        {
+            BadgeMap badgeMap = BadgeMap.Load(configPath);
+
+            string output = Transform.SerializeToPlaintext(json, badgeMap);
+
+            Assert.Equal(expectedOutput, output);
+        }
+        finally
+        {
+            File.Delete(configPath);
+        }
+    }
+
+    [Theory]
+    [InlineData("{\"moderator:0\":\"🟠\",\"moderator\":\"🛡️\"}",
+        "{\"comments\":[{\"content_offset_seconds\":0,\"commenter\":{\"display_name\":\"JohnSmith\"},\"message\":{\"body\":\"Hello, World!\",\"user_badges\":[{\"_id\":\"moderator\",\"version\":\"0\"}]}}]}",
+        "00:00:00 🟠 JohnSmith: Hello, World!\n")]
+    [InlineData("{\"moderator:0\":\"🟠\",\"moderator\":\"🛡️\"}",
+        "{\"comments\":[{\"content_offset_seconds\":0,\"commenter\":{\"display_name\":\"JohnSmith\"},\"message\":{\"body\":\"Hello, World!\",\"user_badges\":[{\"_id\":\"moderator\",\"version\":\"3\"}]}}]}",
+        "00:00:00 🛡️ JohnSmith: Hello, World!\n")]
+    public void SerializeToPlaintext_BadgesEnabled_VersionSpecificEntryTakesPrecedence(string configJson, string inputString, string expectedOutput)
+    {
+        string configPath = WriteBadgeConfig(configJson);
+        JToken json = JsonUtils.Deserialize(inputString);
+        try
+        {
+            BadgeMap badgeMap = BadgeMap.Load(configPath);
+
+            string output = Transform.SerializeToPlaintext(json, badgeMap);
+
+            Assert.Equal(expectedOutput, output);
+        }
+        finally
+        {
+            File.Delete(configPath);
+        }
+    }
+
+    [Theory]
+    [InlineData("{\"*\":\"🎫\"}",
+        "{\"comments\":[{\"content_offset_seconds\":0,\"commenter\":{\"display_name\":\"JohnSmith\"},\"message\":{\"body\":\"Hello, World!\",\"user_badges\":[{\"_id\":\"someunknownbadge\",\"version\":\"1\"},{\"_id\":\"anotherone\",\"version\":\"0\"}]}}]}",
+        "00:00:00 🎫🎫 JohnSmith: Hello, World!\n")]
+    [InlineData("{\"*\":\"🎫\",\"moderator\":\"🛡️\"}",
+        "{\"comments\":[{\"content_offset_seconds\":0,\"commenter\":{\"display_name\":\"JohnSmith\"},\"message\":{\"body\":\"Hello, World!\",\"user_badges\":[{\"_id\":\"moderator\",\"version\":\"0\"},{\"_id\":\"someunknownbadge\",\"version\":\"1\"}]}}]}",
+        "00:00:00 🛡️🎫 JohnSmith: Hello, World!\n")]
+    public void SerializeToPlaintext_BadgesEnabled_WildcardFallsBackForUnmappedBadges(string configJson, string inputString, string expectedOutput)
+    {
+        string configPath = WriteBadgeConfig(configJson);
+        JToken json = JsonUtils.Deserialize(inputString);
+        try
+        {
+            BadgeMap badgeMap = BadgeMap.Load(configPath);
+
+            string output = Transform.SerializeToPlaintext(json, badgeMap);
+
+            Assert.Equal(expectedOutput, output);
+        }
+        finally
+        {
+            File.Delete(configPath);
+        }
+    }
+
+    [Theory]
+    [InlineData(
+        "{\"comments\":[{\"content_offset_seconds\":0,\"commenter\":{\"display_name\":\"JohnSmith\"},\"message\":{\"body\":\"Hello, World!\",\"user_badges\":[{\"_id\":\"moderator\",\"version\":\"0\"}]}}]}",
+        "00:00:00 JohnSmith: Hello, World!\n")]
+    public void SerializeToPlaintext_BadgesDisabled_SoNothingIsRendered(string inputString, string expectedOutput)
+    {
+        JToken json = JsonUtils.Deserialize(inputString);
+
+        string output = Transform.Serialize(json, GetOptions(Format.Plaintext));
+
+        Assert.Equal(expectedOutput, output);
+    }
+
+    [Theory]
+    [InlineData(
+        "{\"comments\":[{\"content_offset_seconds\":0,\"commenter\":{\"display_name\":\"JohnSmith\"},\"message\":{\"body\":\"Hello, World!\",\"user_badges\":[{\"_id\":\"moderator\",\"version\":\"0\"}]}}]}",
+        "{\"comments\":[{\"content_offset_seconds\":0,\"commenter\":{\"display_name\":\"JohnSmith\"},\"message\":{\"body\":\"Hello, World!\",\"user_badges\":[{\"_id\":\"moderator\",\"version\":\"0\"}]}}]}")]
+    public void Serialize_FormatJson_BadgesEnabledAlthoughJsonIsUntouched(string inputString, string expectedOutput)
+    {
+        string output = Transform.Serialize(JsonUtils.Deserialize(inputString), GetOptions(Format.Json, badges: true));
+
+        Assert.Equal(expectedOutput, output);
+    }
+
+    [Theory]
+    [InlineData(
+        "{\"moderator\":\"M\",\"subscriber\":\"S\",\"princessdonutbrown\":\"🍩\"}",
+        "{\"comments\":[{\"content_offset_seconds\":0,\"commenter\":{\"display_name\":\"JohnSmith\"},\"message\":{\"body\":\"Hello, World!\",\"user_badges\":[{\"_id\":\"founder\",\"version\":\"0\"},{\"_id\":\"princessdonutbrown\",\"version\":\"1\"}]}}]}",
+        "{\"comments\":[{\"content_offset_seconds\":0,\"commenter\":{\"display_name\":\"JohnSmith\"},\"message\":{\"body\":\"Hello, World!\",\"user_badges\":[{\"_id\":\"founder\",\"version\":\"0\"},{\"_id\":\"princessdonutbrown\",\"version\":\"1\"}]}}]}")]
+    public void Serialize_FormatJson_BadgesEnabledWithConfig_JsonIsStillUntouched(string configJson, string inputString, string expectedOutput)
+    {
+        string configPath = WriteBadgeConfig(configJson);
+        try
+        {
+            string output = Transform.Serialize(JsonUtils.Deserialize(inputString), GetOptions(Format.Json, badges: true, badgeConfig: configPath));
+
+            Assert.Equal(expectedOutput, output);
+        }
+        finally
+        {
+            File.Delete(configPath);
+        }
+    }
+
+    [Theory]
+    [InlineData(
+        "{\"moderator\":\"M\",\"princessdonutbrown\":\"🍩\"}",
+        "{\"comments\":[{\"content_offset_seconds\":0,\"commenter\":{\"display_name\":\"JohnSmith\"},\"message\":{\"body\":\"Hello, World!\",\"user_badges\":[{\"_id\":\"founder\",\"version\":\"0\"},{\"_id\":\"princessdonutbrown\",\"version\":\"1\"}]}}]}",
+        "00:00:00 💜🍩 JohnSmith: Hello, World!\n")]
+    public void Serialize_FormatPlaintext_BadgesEnabledWithConfig_ResolvesMixedDefaultsAndCustom(string configJson, string inputString, string expectedOutput)
+    {
+        string configPath = WriteBadgeConfig(configJson);
+        try
+        {
+            string output = Transform.Serialize(JsonUtils.Deserialize(inputString), GetOptions(Format.Plaintext, badges: true, badgeConfig: configPath));
+
+            Assert.Equal(expectedOutput, output);
+        }
+        finally
+        {
+            File.Delete(configPath);
+        }
+    }
+
+    [Theory]
+    [InlineData("{\"moderator\":42}")]
+    public void BadgeMap_Load_NonStringValue_ThrowsBadgeConfigExceptionInvalidValue(string configJson)
+    {
+        string configPath = WriteBadgeConfig(configJson);
+        try
+        {
+            void Load() => BadgeMap.Load(configPath);
+
+            Assert.Throws<BadgeConfigException.InvalidValue>(Load);
+        }
+        finally
+        {
+            File.Delete(configPath);
+        }
+    }
+
+    [Fact]
+    public void BadgeMap_Load_MissingFile_ThrowsBadgeConfigExceptionFileNotFound()
+    {
+        string configPath = Path.Combine(Path.GetTempPath(), System.Guid.NewGuid().ToString());
+
+        void Load() => BadgeMap.Load(configPath);
+
+        Assert.Throws<BadgeConfigException.FileNotFound>(Load);
+    }
+
+    [Fact]
+    public void DefaultConfigJson_ProducesValidJsonContainingAllDefaultEntries()
+    {
+        JObject config = JsonUtils.Deserialize(BadgeMap.DefaultConfigJson);
+
+        Assert.Equal("📺", config.D("broadcaster").As<string>());
+        Assert.Equal("🛡️", config.D("moderator").As<string>());
+        Assert.Equal("⭐", config.D("subscriber").As<string>());
+        Assert.Equal("💜", config.D("founder").As<string>());
+        Assert.Equal("🤖", config.D("confirmed-bot").As<string>());
+    }
+
+    [Theory]
+    [InlineData(
+        "{\"comments\":[{\"content_offset_seconds\":0,\"commenter\":{\"display_name\":\"JohnSmith\"},\"message\":{\"body\":\"Hello, World!\",\"user_badges\":[{\"_id\":\"moderator\",\"version\":\"0\"},{\"_id\":\"vip\",\"version\":\"1\"}]}}]}",
+        "00:00:00 🛡️💎 JohnSmith: Hello, World!\n")]
+    public void WriteDefaultConfig_CreatesFileThatCanBeLoadedAndUsed(string inputString, string expectedOutput)
+    {
+        string configPath = Path.Combine(Path.GetTempPath(), System.Guid.NewGuid().ToString() + ".json");
+        try
+        {
+            BadgeMap.WriteDefaultConfig(configPath);
+            BadgeMap badgeMap = BadgeMap.Load(configPath);
+
+            string output = Transform.SerializeToPlaintext(JsonUtils.Deserialize(inputString), badgeMap);
+
+            Assert.Equal(expectedOutput, output);
+        }
+        finally
+        {
+            File.Delete(configPath);
+        }
     }
 }

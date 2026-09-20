@@ -1,4 +1,5 @@
-﻿using TwitchChatOffset.Json;
+﻿using TwitchChatOffset.Badges;
+using TwitchChatOffset.Json;
 using TwitchChatOffset.Options.Groups;
 using TwitchChatOffset.Subtitles;
 using System;
@@ -103,13 +104,16 @@ public static class Transform
 
     public static string Serialize(JToken json, TransformCommonOptions options)
     {
+        BadgeMap badgeMap = options.Badges
+            ? BadgeMap.Load(options.BadgeConfig)
+            : BadgeMap.Empty;
         return options.Format.Value switch
         {
             Format.Json => SerializeToJson(json),
             Format.JsonIndented => SerializeToJsonIndented(json),
-            Format.Ytt => SerializeToYtt(json, options.SubtitleOptions, options.Format),
-            Format.Ass => SerializeToAss(json, options.SubtitleOptions, options.Format),
-            Format.Plaintext => SerializeToPlaintext(json),
+            Format.Ytt => SerializeToYtt(json, options.SubtitleOptions, options.Format, badgeMap),
+            Format.Ass => SerializeToAss(json, options.SubtitleOptions, options.Format, badgeMap),
+            Format.Plaintext => SerializeToPlaintext(json, badgeMap),
             _ => throw new InternalException($"Internal error: unrecognised format type {options.Format.Value}")
         };
     }
@@ -126,17 +130,17 @@ public static class Transform
         return JsonUtils.Serialize(json, Formatting.Indented);
     }
 
-    public static string SerializeToYtt(JToken json, SubtitleOptions options, Format format)
+    public static string SerializeToYtt(JToken json, SubtitleOptions options, Format format, BadgeMap badgeMap)
     {
-        return SubtitleSerialization.Serialize(json, options, format);
+        return SubtitleSerialization.Serialize(json, options, format, badgeMap);
     }
 
-    public static string SerializeToAss(JToken json, SubtitleOptions options, Format format)
+    public static string SerializeToAss(JToken json, SubtitleOptions options, Format format, BadgeMap badgeMap)
     {
-        return SubtitleSerialization.Serialize(json, options, format);
+        return SubtitleSerialization.Serialize(json, options, format, badgeMap);
     }
 
-    public static string SerializeToPlaintext(JToken json)
+    public static string SerializeToPlaintext(JToken json, BadgeMap? badgeMap = null)
     {
         StringBuilder builder = new();
         JArray comments = json.D("comments").As<JArray>();
@@ -145,13 +149,17 @@ public static class Transform
             long offset = comment.D("content_offset_seconds").As<long>();
             TimeSpan timeSpan = TimeSpan.FromSeconds(offset);
             string displayName = comment.D("commenter").D("display_name").As<string>();
-            string message = comment.D("message").D("body").As<string>();
+            JToken message = comment.D("message");
+            string messageBody = message.D("body").As<string>();
+            string badges = badgeMap?.GetBadgesText(message) ?? string.Empty;
 
             builder.Append(timeSpan);
             builder.Append(' ');
+            if (badges.Length > 0)
+                builder.Append(badges).Append(' ');
             builder.Append(displayName);
             builder.Append(": ");
-            builder.Append(message);
+            builder.Append(messageBody);
             builder.Append('\n');
         }
         return builder.ToString();

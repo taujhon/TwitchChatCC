@@ -32,6 +32,22 @@ When converting to YTT/ASS subtitles, TwitchChatOffset supports:
 
 TwitchChatOffset also supports bulk transformations, so if you have many Twitch chats (or one big Twitch chat that needs to split into several videos), you can put the details of each chat into a CSV table and TwitchChatOffset will automatically apply all the transformations into as many files as needed. TwitchChatOffset also supports easily making several transformations per input file (e.g. converting the same Twitch chat JSON file into both YTT and ASS formats), and performs optimisations to avoid doing duplicate work for the same input file.
 
+TwitchChatOffset also supports preserving user badges. Since Twitch chat JSON files store badges as plain data (e.g. `"user_badges":[{"_id":"founder","version":"0"}]`) rather than images, TwitchChatOffset can render them as emojis beside the username in the YTT/ASS/plaintext outputs. Badge rendering is opt-in: pass `--badges` to enable it. A built-in default mapping covers the most common badges (broadcaster, moderator, VIP, subscriber, founder, turbo, premium, etc.), and you can override or extend it with `--badge-config <path>`, a JSON file mapping badge names to emoji strings, e.g.:
+```
+{
+  "subscriber": "⭐",
+  "subscriber:2": "⭐⭐",
+  "myChannelCustomBadge": "🍩"
+}
+```
+A `badgeId:version` key takes precedence over the plain `badgeId` key for that version, and a `"*"` entry acts as a fallback for any badge without an explicit mapping. Setting a badge's value to an empty string `""` hides that badge. The JSON output format is never modified, since it already preserves the badges natively.
+
+To get a starting point for your own mapping, run:
+```
+TwitchChatOffset --badge-config-default badges.json
+```
+This writes the built-in default mapping to `badges.json`, which you can then edit and feed back in with `--badge-config badges.json`.
+
 To handle the YTT conversions, the app uses a fork of [YTSubConverter](https://github.com/arcusmaximus/YTSubConverter).
 
 TwitchChatOffset can be run on any operating system that supports the .NET Runtime (Windows, MacOS, Linux), though you may need to install .NET manually if you don't have it already.

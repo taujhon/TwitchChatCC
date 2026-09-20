@@ -1,4 +1,5 @@
-﻿using TwitchChatOffset.Json;
+﻿using TwitchChatOffset.Badges;
+using TwitchChatOffset.Json;
 using TwitchChatOffset.Options.Groups;
 using System;
 using System.Collections.Generic;
@@ -15,7 +16,7 @@ namespace TwitchChatOffset.Subtitles;
 
 public static class SubtitleSerialization
 {
-    public static string Serialize(JToken json, SubtitleOptions options, Format format)
+    public static string Serialize(JToken json, SubtitleOptions options, Format format, BadgeMap badgeMap)
     {
         if (options.MaxMessages < 1)
         {
@@ -45,7 +46,7 @@ public static class SubtitleSerialization
         Queue<ChatMessage> visibleMessages = new((int)options.MaxMessages);
         foreach (JToken comment in comments)
         {
-            ChatMessage chatMessage = GetChatMessage(comment, userColors, options, format);
+            ChatMessage chatMessage = GetChatMessage(comment, userColors, options, format, badgeMap);
 
             if (visibleMessages.Count > 0)
             {
@@ -69,7 +70,7 @@ public static class SubtitleSerialization
         return stringWriter.ToString();
     }
 
-    private static ChatMessage GetChatMessage(JToken comment, Dictionary<string, Color> userColors, SubtitleOptions options, Format format)
+    private static ChatMessage GetChatMessage(JToken comment, Dictionary<string, Color> userColors, SubtitleOptions options, Format format, BadgeMap badgeMap)
     {
         long offset = comment.D("content_offset_seconds").As<long>();
         TimeSpan timeSpan = TimeSpan.FromSeconds(offset);
@@ -77,7 +78,8 @@ public static class SubtitleSerialization
         JToken message = comment.D("message");
         string displayName = comment.D("commenter").D("display_name").As<string>();
         string messageStr = message.D("body").As<string>();
-        GetWrappedMessage(displayName, messageStr, (int)options.MaxCharsPerLine, out string wrappedDisplayName, out string wrappedMessage);
+        string badgeText = badgeMap.GetBadgesText(message);
+        GetWrappedMessage(badgeText, displayName, messageStr, (int)options.MaxCharsPerLine, out string wrappedDisplayName, out string wrappedMessage);
 
         Color userColor = GetUserColor(userColors, displayName, message, options);
 
@@ -114,9 +116,10 @@ public static class SubtitleSerialization
         return Color.FromArgb((int)argb);                       // cast to Int32 preserves all the same bits since sizeof(UInt32)=sizeof(Int32)=4
     }
 
-    private static void GetWrappedMessage(string displayName, string message, int maxCharsPerLine, out string wrappedDisplayName, out string wrappedMessage)
+    private static void GetWrappedMessage(string badges, string displayName, string message, int maxCharsPerLine, out string wrappedDisplayName, out string wrappedMessage)
     {
-        string total = displayName + ": " + message;
+        string name = badges.Length > 0 ? badges + " " + displayName : displayName;
+        string total = name + ": " + message;
         string wrappedTotal = GetWrappedText(total.AsSpan(), maxCharsPerLine);
         int colonIndex = wrappedTotal.IndexOf(':');
         wrappedDisplayName = wrappedTotal[..(colonIndex + 2)];

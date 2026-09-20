@@ -78,6 +78,18 @@ public static class CliOptions
         "[YTT|ASS] Seed for generating deterministic colors for users with no specified color (positive or negative integer) (optional)",
         _ => 0);
 
+    public static CliOptionContainer<bool> Badges { get; } = new("--badges", Aliases.Badges,
+        "[YTT|ASS|Plaintext] Render user badges as emojis beside the username (optional)",
+        _ => false);
+
+    public static CliOptionContainer<string> BadgeConfig { get; } = new("--badge-config", Aliases.BadgeConfig,
+        "[YTT|ASS|Plaintext] Path to a JSON file mapping badge names to emoji strings, e.g. \"subscriber\":\"⭐\"; merges over the built-in default map, a \"*\" entry acts as a fallback for any unmapped badge (optional)",
+        _ => string.Empty);
+
+    public static CliOptionContainer<string> BadgeConfigDefault { get; } = new("--badge-config-default", Aliases.BadgeConfigDefault,
+        "Generate the default badge-to-emoji mapping as a JSON file at the given path and exit (optional)",
+        _ => string.Empty);
+
     public static CliOptionContainer<string> InputFile { get; } = new("--input-file", Aliases.InputFile,
         "Input file (optional)",
         _ => string.Empty);

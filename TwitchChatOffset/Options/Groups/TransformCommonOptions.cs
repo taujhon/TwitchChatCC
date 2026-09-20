@@ -14,6 +14,12 @@ public record TransformCommonOptions : OptionGroup<TransformCommonOptions>
     [CliOption(nameof(CliOptions.Format))]
     public Plicit<Format> Format;
 
+    [CliOption(nameof(CliOptions.Badges))]
+    public Plicit<bool> Badges;
+
+    [CliOption(nameof(CliOptions.BadgeConfig))]
+    public Plicit<string> BadgeConfig;
+
     public SubtitleOptions SubtitleOptions = new();
 
     public void Deconstruct(out long start, out long end, out long delay)
