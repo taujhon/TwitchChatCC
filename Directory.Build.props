@@ -1,7 +1,7 @@
 <Project>
 
   <!--
-    TwitchChatOffset - local, machine-only build configuration (NOT tracked by git).
+    TwitchChatCC - local, machine-only build configuration (NOT tracked by git).
     MSBuild auto-imports this file because it walks up the directory tree from
     each project, so a bare `dotnet publish` (with no flags) picks it up.
 

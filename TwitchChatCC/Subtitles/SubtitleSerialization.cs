@@ -1,0 +1,177 @@
+﻿using TwitchChatCC.Badges;
+using TwitchChatCC.Json;
+using TwitchChatCC.Options.Groups;
+using System;
+using System.Collections.Generic;
+using System.Drawing;
+using System.IO;
+using System.IO.Hashing;
+using System.Text;
+using Newtonsoft.Json.Linq;
+using YTSubConverter.Shared;
+using YTSubConverter.Shared.Formats;
+using static System.Drawing.ColorTranslator;
+
+namespace TwitchChatCC.Subtitles;
+
+public static class SubtitleSerialization
+{
+    public static string Serialize(JToken json, SubtitleOptions options, Format format, BadgeMap badgeMap)
+    {
+        if (options.MaxMessages < 1)
+        {
+            PrintWarning("Warning: sub-max-messages is less than 1 which is not supported; treating it as 1 instead");
+            options.MaxMessages.Value = 1;
+        }
+        SubtitleUtils.NormaliseByte(ref options.WindowOpacity);
+        SubtitleUtils.NormaliseByte(ref options.SectionOptions.SubBackgroundOpacity);
+        options.SectionOptions.ResolveFont();
+        if (format == Format.Ytt && options.WindowOpacity == 255)
+        {
+            PrintWarning("Warning: sub-window-opacity is 255 which for some reason may get overridden in the YouTube player, treating it as 254 instead");
+            options.WindowOpacity.Value = 254;
+        }
+        if (options.SectionOptions.SubBackgroundOpacity == 255)
+        {
+            PrintWarning("Warning: ytt-background-opacity is 255 which for some reason may get overridden in the YouTube player, treating it as 254 instead");
+            options.SectionOptions.SubBackgroundOpacity.Value = 254;
+        }
+        if (format != Format.Ytt)
+        {
+            options.SectionOptions.SubBackgroundOpacity.Value = 0;
+            options.SectionOptions.Shadow.Value = options.SubOutlineDisable ? Shadow.None : Shadow.Glow;
+        }
+        SubtitleDocument sub = format.NewDocument();
+        JArray comments = json.D("comments").As<JArray>();
+        Dictionary<string, Color> userColors = [];
+        Queue<ChatMessage> visibleMessages = new((int)options.MaxMessages);
+        foreach (JToken comment in comments)
+        {
+            ChatMessage chatMessage = GetChatMessage(comment, userColors, options, format, badgeMap);
+
+            if (visibleMessages.Count > 0)
+            {
+                Line line = GetLine(visibleMessages, chatMessage, options, format);
+                sub.Lines.Add(line);
+            }
+
+            if (visibleMessages.Count >= options.MaxMessages)
+                _ = visibleMessages.Dequeue();
+            visibleMessages.Enqueue(chatMessage);
+        }
+        if (comments.Count > 0)
+        {
+            Line lastLine = GetLine(visibleMessages, null, options, format);
+            sub.Lines.Add(lastLine);
+        }
+        format.ApplyAssStyles(sub, options.SubFontSize, options.SubBackgroundEnable, options.WindowOpacity);
+
+        StringWriter stringWriter = new();
+        sub.Save(stringWriter);
+        return stringWriter.ToString();
+    }
+
+    private static ChatMessage GetChatMessage(JToken comment, Dictionary<string, Color> userColors, SubtitleOptions options, Format format, BadgeMap badgeMap)
+    {
+        long offset = comment.D("content_offset_seconds").As<long>();
+        TimeSpan timeSpan = TimeSpan.FromSeconds(offset);
+
+        JToken message = comment.D("message");
+        string displayName = comment.D("commenter").D("display_name").As<string>();
+        string messageStr = message.D("body").As<string>();
+        string badgeText = badgeMap.GetBadgesText(message);
+        GetWrappedMessage(badgeText, displayName, messageStr, (int)options.MaxCharsPerLine, out string wrappedDisplayName, out string wrappedMessage);
+
+        Color userColor = GetUserColor(userColors, displayName, message, options);
+
+        Section displayNameSection = format.NewSection(wrappedDisplayName, userColor);
+        Section messageSection = format.NewSection(wrappedMessage, FromHtml(options.TextColor));
+        displayNameSection.ApplyOptions(options.SectionOptions, format);
+        messageSection.ApplyOptions(options.SectionOptions, format);
+
+        return new(displayNameSection, messageSection, timeSpan);
+    }
+
+    private static Color GetUserColor(Dictionary<string, Color> userColors, string user, JToken message, SubtitleOptions options)
+    {
+        if (userColors.TryGetValue(user, out Color color))
+            return color;
+        string? userColorStr = message.D("user_color").AsN<string>()?.Value;
+        if (userColorStr == null)
+        {
+            color = GetRandomDeterministicColor(user, (int)options.SubColorSeed);
+            userColors.Add(user, color);
+            return color;
+        }
+        color = FromHtml(userColorStr);
+        userColors.Add(user, color);
+        return color;
+    }
+
+    private static Color GetRandomDeterministicColor(string seed, int seed2)
+    {
+        Span<byte> bytes = stackalloc byte[seed.Length * 2];    // each char is 2 bytes, so byte count is double the char count
+        _ = Encoding.Unicode.GetBytes(seed, bytes);             // .NET uses UTF-16 (16-bit/2-byte) encoding, which is represented in Encoding.Unicode
+        uint argb = XxHash32.HashToUInt32(bytes, seed2);        // deterministic hash into a random 32-bit value
+        argb |= 0xFF000000;                                     // set the first byte to FF to make alpha=255 (fully opaque), RGB values remain unchanged
+        return Color.FromArgb((int)argb);                       // cast to Int32 preserves all the same bits since sizeof(UInt32)=sizeof(Int32)=4
+    }
+
+    private static void GetWrappedMessage(string badges, string displayName, string message, int maxCharsPerLine, out string wrappedDisplayName, out string wrappedMessage)
+    {
+        string name = badges.Length > 0 ? badges + " " + displayName : displayName;
+        string total = name + ": " + message;
+        string wrappedTotal = GetWrappedText(total.AsSpan(), maxCharsPerLine);
+        int colonIndex = wrappedTotal.IndexOf(':');
+        wrappedDisplayName = wrappedTotal[..(colonIndex + 2)];
+        wrappedMessage = wrappedTotal[(colonIndex + 2)..];
+    }
+
+    private static string GetWrappedText(ReadOnlySpan<char> text, int maxCharsPerLine)
+    {
+        StringBuilder builder = new();
+        int index = 0;
+        while (text.Length - index > maxCharsPerLine)
+        {
+            int whiteSpaceIndex = FindLastIndex(text, index, maxCharsPerLine, char.IsWhiteSpace);
+            if (whiteSpaceIndex == -1)
+            {
+                builder.Append(text[index..(index += maxCharsPerLine)]);
+                builder.Append('\n');
+                continue;
+            }
+            builder.Append(text[index..whiteSpaceIndex]);
+            builder.Append('\n');
+            index = whiteSpaceIndex + 1;
+        }
+        builder.Append(text[index..]);
+        return builder.ToString();
+    }
+
+    private static int FindLastIndex<T>(ReadOnlySpan<T> span, int startIndex, int count, Predicate<T> match)
+    {
+        for (int i = startIndex + count - 1; i >= startIndex; i--)
+            if (match(span[i]))
+                return i;
+        return -1;
+    }
+
+    private static Line GetLine(Queue<ChatMessage> chatMessages, ChatMessage? nextChatMessage, SubtitleOptions options, Format format)
+    {
+        List<Section> sections = new(chatMessages.Count * 3);
+        ChatMessage lastChatMessage = default;
+        foreach (ChatMessage chatMessage in chatMessages)
+        {
+            sections.Add(chatMessage.Name);
+            sections.Add(chatMessage.Message);
+            Section newlineSection = format.NewSection("\n"); // for YTT, \n and \r\n work, but for ASS, only \r\n works
+            newlineSection.ApplyOptions(options.SectionOptions, format);
+            sections.Add(newlineSection);
+            lastChatMessage = chatMessage;
+        }
+        DateTime start = SubtitleDocument.TimeBase + lastChatMessage.Time;
+        DateTime end = SubtitleDocument.TimeBase + (nextChatMessage?.Time ?? format.GetMaxTimeSpan(lastChatMessage));
+        // if any line has the same start and end value, YTSubConverter appears to automatically get rid of that line when saving the YTT file
+        return format.NewLine(start, end, sections, options.Position, (byte)options.WindowOpacity);
+    }
+}
