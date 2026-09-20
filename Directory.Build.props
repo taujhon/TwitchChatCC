@@ -1,0 +1,26 @@
+<Project>
+
+  <!--
+    TwitchChatOffset - local, machine-only build configuration (NOT tracked by git).
+    MSBuild auto-imports this file because it walks up the directory tree from
+    each project, so a bare `dotnet publish` (with no flags) picks it up.
+
+    This file is intentionally left untracked so the upstream repository and its
+    build behaviour on other machines are not affected. If you ever want to
+    undo these settings, just delete this file.
+
+    Frameworks:
+      SelfContained=false  -> framework-dependent; needs the .NET runtime
+      PublishSingleFile    -> single binary output
+      RuntimeIdentifier    -> linux-x64 (app must be RID-specific for single-file/apphost)
+      DebugType=none       -> drop any .pdb debug symbols from the output
+  -->
+  <PropertyGroup>
+    <SelfContained>false</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''">linux-x64</RuntimeIdentifier>
+    <DebugType>none</DebugType>
+    <DebugSymbols>false</DebugSymbols>
+  </PropertyGroup>
+
+</Project>
