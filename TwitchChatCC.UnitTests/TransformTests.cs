@@ -1,10 +1,13 @@
 ﻿using TwitchChatCC.Badges;
+using TwitchChatCC.CommandLine;
+using TwitchChatCC.ConsoleUtils;
 using TwitchChatCC.Options.Groups;
 using TwitchChatCC.Json;
 using TwitchChatCC.Subtitles;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using YTSubConverter.Shared;
+using System.Linq;
 using System.IO;
 
 namespace TwitchChatCC.UnitTests;
@@ -58,6 +61,15 @@ public class TransformTests
         File.WriteAllText(path, json);
         return path;
     }
+
+    private static string SegmentJson(params (long offset, string name)[] comments)
+        => $"{{\"comments\":[{string.Join(",", comments.Select(c => $"{{\"content_offset_seconds\":{c.offset},\"commenter\":{{\"display_name\":\"{c.name}\"}},\"message\":{{\"body\":\"msg{c.offset}\",\"user_color\":\"#FF0000\"}}}}"))}]}}";
+
+    private static string SegmentJson(long videoLength, params (long offset, string name)[] comments)
+        => $"{{\"video\":{{\"length\":{videoLength}}},\"comments\":[{string.Join(",", comments.Select(c => $"{{\"content_offset_seconds\":{c.offset},\"commenter\":{{\"display_name\":\"{c.name}\"}},\"message\":{{\"body\":\"msg{c.offset}\",\"user_color\":\"#FF0000\"}}}}"))}]}}";
+
+    private static long[] GetCommentOffsets(JToken json)
+        => json.D("comments").As<JArray>().Select(c => c.D("content_offset_seconds").As<long>()).ToArray();
 
     [Theory]
     [InlineData("")]
@@ -771,5 +783,128 @@ public class TransformTests
         string output = Transform.DoTransform(SingleCommentJson, GetOptions(Format.Ass));
 
         Assert.DoesNotContain("\\fs0", output);
+    }
+
+    [Fact]
+    public void GetSortedOriginalCommentsAndJson_MultipleInputs_ShiftsSegmentsByCumulativeVideoLength()
+    {
+        string file1 = SegmentJson(videoLength: 100, (5, "A"), (20, "B"));
+        string file2 = SegmentJson(videoLength: 60, (3, "C"), (50, "D"));
+        string file3 = SegmentJson((10, "E"));
+
+        (JToken[] allComments, JToken json) = Transform.GetSortedOriginalCommentsAndJson([file1, file2, file3]);
+
+        Assert.Equal(new long[] { 5, 20, 103, 150, 170 }, GetCommentOffsets(json));
+        Assert.Equal(new string[] { "A", "B", "C", "D", "E" }, allComments.Select(c => c.D("commenter").D("display_name").As<string>()).ToArray());
+        Assert.Equal(100, json.D("video").D("length").As<long>());
+    }
+
+    [Fact]
+    public void GetSortedOriginalCommentsAndJson_MissingVideoLength_FallsBackToLastCommentOffset()
+    {
+        string file1 = SegmentJson((5, "A"), (8, "B"));
+        string file2 = SegmentJson(videoLength: 30, (4, "C"));
+
+        (JToken[] allComments, JToken json) = Transform.GetSortedOriginalCommentsAndJson([file1, file2]);
+
+        Assert.Equal(new long[] { 5, 8, 12 }, GetCommentOffsets(json));
+        Assert.Equal(allComments.Length, json.D("comments").As<JArray>().Count);
+    }
+
+    [Fact]
+    public void GetSortedOriginalCommentsAndJson_SingleInputArray_BehavesLikeSingleString()
+    {
+        string input = SegmentJson(videoLength: 100, (5, "A"), (20, "B"));
+        (JToken[] expectedAllComments, JToken expectedJson) = Transform.GetSortedOriginalCommentsAndJson(input);
+
+        (JToken[] allComments, JToken json) = Transform.GetSortedOriginalCommentsAndJson([input]);
+
+        Assert.Equal(JsonConvert.SerializeObject(expectedJson), JsonConvert.SerializeObject(json));
+        Assert.Equal(expectedAllComments.Length, allComments.Length);
+    }
+
+    [Fact]
+    public void DoTransform_MultipleInputs_MergesIntoCombinedJson()
+    {
+        string file1 = SegmentJson(videoLength: 100, (5, "A"), (20, "B"));
+        string file2 = SegmentJson(videoLength: 60, (3, "C"));
+
+        string output = Transform.DoTransform([file1, file2], GetOptions(Format.Json));
+
+        Assert.Equal(new long[] { 5, 20, 103 }, GetCommentOffsets(JsonUtils.Deserialize(output)));
+    }
+
+    [Fact]
+    public void DoTransform_MultipleInputs_StartEndDelayApplyToCombinedTimeline()
+    {
+        string file1 = SegmentJson(videoLength: 100, (5, "A"));
+        string file2 = SegmentJson(videoLength: 60, (30, "B"));
+
+        TransformCommonOptions options = GetOptions(Format.Json);
+        options.Start = new(6, true);
+        options.End = new(131, true);
+        options.Delay = new(10, true);
+
+        string output = Transform.DoTransform([file1, file2], options);
+
+        Assert.Equal(new long[] { 134 }, GetCommentOffsets(JsonUtils.Deserialize(output)));
+    }
+
+    [Fact]
+    public void DoTransform_MultipleInputs_YttContainsAllMergedMessages()
+    {
+        string file1 = SegmentJson(videoLength: 100, (5, "A"));
+        string file2 = SegmentJson(videoLength: 60, (30, "B"));
+
+        string output = Transform.DoTransform([file1, file2], GetOptions(Format.Ytt));
+
+        Assert.Contains("msg5", output);
+        Assert.Contains("msg30", output);
+    }
+
+    [Fact]
+    public void TrySplitPaths_TwoOrMorePaths_LastIsOutputRestAreInputs()
+    {
+        bool result = TransformCommand.TrySplitPaths(["a.json", "b.json", "out.ytt"], out string output, out string[] inputs);
+
+        Assert.True(result);
+        Assert.Equal("out.ytt", output);
+        Assert.Equal(new[] { "a.json", "b.json" }, inputs);
+    }
+
+    [Fact]
+    public void TrySplitPaths_FewerThanTwoPaths_Fails()
+    {
+        bool result = TransformCommand.TrySplitPaths(["only-one.json"], out string output, out string[] inputs);
+
+        Assert.False(result);
+        Assert.Equal(string.Empty, output);
+        Assert.Empty(inputs);
+    }
+
+    [Fact]
+    public void ValidateInputOutput_OutputDiffersFromAllInputs_ReturnsYes()
+    {
+        string[] inputPaths = ["a.json", "b.json"];
+        string outputPath = "out.ytt";
+
+        Response response = ResponseUtils.ValidateInputOutput(ref inputPaths, ref outputPath, CliResponse.No);
+
+        Assert.Equal(Response.Yes, response);
+        Assert.Equal(new[] { "a.json", "b.json" }, inputPaths);
+        Assert.Equal("out.ytt", outputPath);
+    }
+
+    [Theory]
+    [InlineData(CliResponse.Yes, Response.Yes)]
+    [InlineData(CliResponse.No, Response.No)]
+    public void ValidateInputOutput_OutputMatchesAnyInput_ReturnsCliResponse(CliResponse cliResponse, Response expected)
+    {
+        string[] inputPaths = ["a.json", "b.json"];
+        string outputPath = "b.json";
+
+        Response response = ResponseUtils.ValidateInputOutput(ref inputPaths, ref outputPath, cliResponse);
+
+        Assert.Equal(expected, response);
     }
 }

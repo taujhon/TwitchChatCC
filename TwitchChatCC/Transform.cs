@@ -3,6 +3,7 @@ using TwitchChatCC.Json;
 using TwitchChatCC.Options.Groups;
 using TwitchChatCC.Subtitles;
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using Newtonsoft.Json;
@@ -15,6 +16,17 @@ public static class Transform
     public static string DoTransform(string input, TransformCommonOptions options)
     {
         (JToken[] allComments, JToken json) = GetSortedOriginalCommentsAndJson(input);
+        ApplyOffset(allComments, json, options);
+        return Serialize(json, options);
+    }
+
+    // appends the chats of subsequent files onto the first file's chat, aligning each one by the
+    // cumulative durations of the preceding files' segments (their video.length metadata)
+    public static string DoTransform(string[] inputs, TransformCommonOptions options)
+    {
+        if (inputs.Length == 1)
+            return DoTransform(inputs[0], options);
+        (JToken[] allComments, JToken json) = GetSortedOriginalCommentsAndJson(inputs);
         ApplyOffset(allComments, json, options);
         return Serialize(json, options);
     }
@@ -35,6 +47,59 @@ public static class Transform
             _ = comments[0].D("content_offset_seconds").As<long>();
 
         return (comments, json);
+    }
+
+    public static (JToken[], JToken) GetSortedOriginalCommentsAndJson(string[] inputs)
+    {
+        if (inputs.Length == 1)
+            return GetSortedOriginalCommentsAndJson(inputs[0]);
+
+        List<JToken> mergedComments = [];
+        JToken json = null!;
+        long cumulativeShift = 0;
+        for (int i = 0; i < inputs.Length; i++)
+        {
+            JToken thisJson = JsonUtils.Deserialize(inputs[i]);
+            JArray commentsJArray = thisJson.D("comments").As<JArray>();
+            JToken[] comments = [..commentsJArray.OrderBy(comment => comment.D("content_offset_seconds").As<long>())];
+            if (comments.Length == 1)
+                _ = comments[0].D("content_offset_seconds").As<long>();
+
+            if (cumulativeShift == 0)
+            {
+                mergedComments.AddRange(comments);
+            }
+            else
+            {
+                foreach (JToken comment in comments)
+                {
+                    JToken shiftedComment = comment.DeepClone();
+                    shiftedComment.D("content_offset_seconds").As<JValue>().Set(shiftedComment.D("content_offset_seconds").As<long>() + cumulativeShift);
+                    mergedComments.Add(shiftedComment);
+                }
+            }
+
+            json ??= thisJson;
+            if (i == inputs.Length - 1)
+                continue;
+
+            long? segmentLength = thisJson.DN("video")?.DN<long>("length")?.Value;
+            if (segmentLength != null)
+            {
+                cumulativeShift += segmentLength.Value;
+            }
+            else if (comments.Length > 0)
+            {
+                long lastOffset = comments[^1].D("content_offset_seconds").As<long>();
+                PrintWarning($"Warning: input file {i + 1} of {inputs.Length} has no video.length; using its last comment time ({lastOffset}s) as the next segment's start instead");
+                cumulativeShift += lastOffset;
+            }
+        }
+
+        // use OrderBy over Sort for stable sort
+        JToken[] sortedComments = [..mergedComments.OrderBy(comment => comment.D("content_offset_seconds").As<long>())];
+        json.Set("comments", new JArray(sortedComments));
+        return (sortedComments, json);
     }
 
     // allComments must be sorted

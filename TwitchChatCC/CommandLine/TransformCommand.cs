@@ -13,22 +13,43 @@ public static class TransformCommand
 
     static TransformCommand()
     {
-        Command.Add(InputArgument);
-        Command.Add(OutputArgument);
+        Command.Add(PathArgument);
         Command.AddOptions<TransformOptions>();
         Command.SetAction(Execute);
     }
 
     private static void Execute(ParseResult parseResult)
     {
-        string inputPath = parseResult.GetValue(InputArgument)!;
-        string outputPath = parseResult.GetValue(OutputArgument)!;
+        string[] paths = parseResult.GetValue(PathArgument) ?? [];
+        if (!TrySplitPaths(paths, out string outputPath, out string[] inputPaths))
+            return;
         TransformOptions options = parseResult.ParseOptions<TransformOptions>();
-        Response response = ResponseUtils.ValidateInputOutput(ref inputPath, ref outputPath, options.Response);
+        Response response = ResponseUtils.ValidateInputOutput(ref inputPaths, ref outputPath, options.Response);
         if (response == Response.No)
             return;
-        string input = File.ReadAllText(inputPath);
-        string output = Transform.DoTransform(input, options.Options);
+        foreach (string inputPath in inputPaths)
+        {
+            if (!IOUtils.ValidateFileExists(inputPath))
+                return;
+        }
+        string[] inputs = new string[inputPaths.Length];
+        for (int i = 0; i < inputPaths.Length; i++)
+            inputs[i] = File.ReadAllText(inputPaths[i]);
+        string output = Transform.DoTransform(inputs, options.Options);
         File.WriteAllText(outputPath, output);
+    }
+
+    public static bool TrySplitPaths(string[] paths, out string outputPath, out string[] inputPaths)
+    {
+        if (paths.Length >= 2)
+        {
+            outputPath = paths[^1];
+            inputPaths = paths[..^1];
+            return true;
+        }
+        PrintError("At least one input path and one output path are required", 2);
+        outputPath = string.Empty;
+        inputPaths = [];
+        return false;
     }
 }

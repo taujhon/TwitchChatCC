@@ -91,9 +91,9 @@ TwitchDownloaderCLI ChatDownload -u 4815162342 -o 4815162342.json
 ```
 # Usage
 ## Transform
-Apply some transformations to a Twitch chat JSON file and output the contents into another file.
+Apply some transformations to a JSON Twitch chat file and output the contents into another file. Specify the input path(s) followed by the output path: the chat replay may be split across several files (e.g. because the base live stream was split into several VODs), in which case list them all in chronological order and they will be concatenated into one combined chat.
 ```
-TwitchChatCC transform <input-path> <output-path> [options]
+TwitchChatCC transform <input-path>... <output-path> [options]
 ```
 To see more information about each argument and option, run `TwitchChatCC transform --help`.
 ### Examples
@@ -113,6 +113,11 @@ Aim: Same as the first example, but this time we want to convert it to a YouTube
 ```
 TwitchChatCC transform chat.json transformed-chat.ytt --start 3600 --end 10800 --delay 60 -f ytt --sub-position topright
 ```
+Aim: to combine a Twitch chat replay that was split across several files (e.g. because the base live stream was split into several VODs) into a single combined chat. List the segment files in chronological order followed by the output path; each segment's messages are shifted by the cumulative durations of the segments before it (taken from each file's `video.length` metadata, in seconds), so the combined timeline reflects the full stream.
+```
+TwitchChatCC transform part1.json part2.json part3.json full-chat.ytt -f ytt
+```
+Note: if any segment is missing its `video.length` metadata, a warning will be printed and the next segment will instead start at that segment's last message's time.
 ## Transform Many
 Using a CSV file with a list of input JSON files and transformations, apply all the listed transformations and create an output file for each, or multiple output files for each. For the CSV file, use the template provided [here](templates/transform-many.csv).
 ```

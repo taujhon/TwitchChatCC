@@ -1,15 +1,17 @@
 ﻿using TwitchChatCC.ConsoleUtils;
+using System;
 using System.IO;
 
 namespace TwitchChatCC.CommandLine;
 
 public static class ResponseUtils
 {
-    public static Response ValidateInputOutput(ref string inputPath, ref string outputPath, CliResponse cliResponse)
+    public static Response ValidateInputOutput(ref string[] inputPaths, ref string outputPath, CliResponse cliResponse)
     {
-        inputPath = Path.GetRelativePath(".", inputPath);
+        for (int i = 0; i < inputPaths.Length; i++)
+            inputPaths[i] = Path.GetRelativePath(".", inputPaths[i]);
         outputPath = Path.GetRelativePath(".", outputPath);
-        if (inputPath != outputPath)
+        if (Array.IndexOf(inputPaths, outputPath) == -1)
             return Response.Yes;
         Response response =
             cliResponse == CliResponse.Manual ?

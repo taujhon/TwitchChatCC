@@ -4,14 +4,10 @@ namespace TwitchChatCC.CommandLine;
 
 public static class Arguments
 {
-    public static readonly Argument<string> InputArgument = new("input-path")
+public static readonly Argument<string[]> PathArgument = new("paths")
     {
-        Description = "Input path (JSON file)"
-    };
-
-    public static readonly Argument<string> OutputArgument = new("output-path")
-    {
-        Description = "Output path"
+        Description = "Input and output paths, in order: the first half are the chat replay JSON files to concatenate (in chronological order, e.g. as split across several VODs), and the last path is the output file",
+        Arity = ArgumentArity.ZeroOrMore
     };
 
     public static readonly Argument<string> CsvArgument = new("csv-path")
